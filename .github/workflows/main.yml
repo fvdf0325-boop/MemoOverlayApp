@@ -1,0 +1,87 @@
+name: Build MemoOverlay IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+    - name: 저장소 체크아웃
+      uses: actions/checkout@v4
+
+    - name: Xcode 버전 확인
+      run: xcodebuild -version
+
+    - name: xcodeproj 생성
+      run: |
+        cat > project.yml << 'EOF'
+        name: MemoOverlay
+        options:
+          bundleIdPrefix: com.yourname
+          deploymentTarget:
+            iOS: "16.0"
+        targets:
+          MemoOverlay:
+            type: application
+            platform: iOS
+            sources:
+              - MemoOverlay
+            settings:
+              base:
+                PRODUCT_BUNDLE_IDENTIFIER: com.yourname.memooverlay
+                SWIFT_VERSION: 5.0
+                CODE_SIGN_IDENTITY: ""
+                CODE_SIGNING_REQUIRED: "NO"
+                CODE_SIGNING_ALLOWED: "NO"
+                ENABLE_BITCODE: "NO"
+                ONLY_ACTIVE_ARCH: "NO"
+                ARCHS: "arm64"
+                VALID_ARCHS: "arm64"
+                INFOPLIST_FILE: MemoOverlay/Info.plist
+        EOF
+
+        brew install xcodegen
+        xcodegen generate
+
+    - name: 빌드 (unsigned)
+      run: |
+        xcodebuild \
+          -project MemoOverlay.xcodeproj \
+          -scheme MemoOverlay \
+          -configuration Release \
+          -sdk iphoneos \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          ONLY_ACTIVE_ARCH=NO \
+          clean build
+
+    - name: .app 찾기
+      run: |
+        find build -name "*.app" -type d
+        APP_PATH=$(find build -name "MemoOverlay.app" -type d | head -1)
+        echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+
+    - name: ldid로 entitlements 서명
+      run: |
+        brew install ldid
+        ldid -SMemoOverlay/MemoOverlay.entitlements "$APP_PATH/MemoOverlay"
+
+    - name: .ipa 패키징
+      run: |
+        mkdir -p Payload
+        cp -r "$APP_PATH" Payload/
+        zip -r MemoOverlay.ipa Payload
+        rm -rf Payload
+
+    - name: .ipa 업로드
+      uses: actions/upload-artifact@v4
+      with:
+        name: MemoOverlay-ipa
+        path: MemoOverlay.ipa
+        if-no-files-found: error
