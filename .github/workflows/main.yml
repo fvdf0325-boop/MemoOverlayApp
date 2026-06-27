@@ -16,9 +16,20 @@ jobs:
     - name: Xcode 버전 확인
       run: xcodebuild -version
 
-    - name: xcodeproj 생성
+    - name: xcodegen 설치 및 프로젝트 생성
       run: |
-        cat > project.yml << 'EOF'
+        brew install xcodegen
+
+        # 실제 파일 위치 확인
+        echo "=== 파일 구조 ==="
+        find . -name "*.swift" | head -20
+
+        # Swift 파일이 있는 실제 경로로 설정
+        SOURCE_DIR=$(find . -name "AppDelegate.swift" | head -1 | xargs dirname)
+        echo "SOURCE_DIR=$SOURCE_DIR"
+        echo "SWIFT_DIR=$SOURCE_DIR" >> $GITHUB_ENV
+
+        cat > project.yml << EOF
         name: MemoOverlay
         options:
           bundleIdPrefix: com.yourname
@@ -29,7 +40,7 @@ jobs:
             type: application
             platform: iOS
             sources:
-              - MemoOverlay
+              - path: ${SOURCE_DIR}
             settings:
               base:
                 PRODUCT_BUNDLE_IDENTIFIER: com.yourname.memooverlay
@@ -41,10 +52,10 @@ jobs:
                 ONLY_ACTIVE_ARCH: "NO"
                 ARCHS: "arm64"
                 VALID_ARCHS: "arm64"
-                INFOPLIST_FILE: MemoOverlay/Info.plist
+                INFOPLIST_FILE: ${SOURCE_DIR}/Info.plist
         EOF
 
-        brew install xcodegen
+        cat project.yml
         xcodegen generate
 
     - name: 빌드 (unsigned)
@@ -61,16 +72,17 @@ jobs:
           ONLY_ACTIVE_ARCH=NO \
           clean build
 
-    - name: .app 찾기
+    - name: .app 찾기 및 entitlements 서명
       run: |
-        find build -name "*.app" -type d
         APP_PATH=$(find build -name "MemoOverlay.app" -type d | head -1)
+        echo "APP_PATH=$APP_PATH"
         echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
 
-    - name: ldid로 entitlements 서명
-      run: |
+        ENTITLEMENTS=$(find . -name "*.entitlements" | head -1)
+        echo "ENTITLEMENTS=$ENTITLEMENTS"
+
         brew install ldid
-        ldid -SMemoOverlay/MemoOverlay.entitlements "$APP_PATH/MemoOverlay"
+        ldid -S"$ENTITLEMENTS" "$APP_PATH/MemoOverlay"
 
     - name: .ipa 패키징
       run: |
